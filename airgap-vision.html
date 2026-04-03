@@ -1,0 +1,151 @@
+<div class="page">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Air-Gapped | Offline | Embedded LLM + Embedded ML VISION (x3)</p>
+      <h1>Vision-to-Map Fusion</h1>
+      <p class="subhead">
+        Live camera → MediaPipe object detector → geotagged markers on an interactive map with heading-aware
+        projection. Default FOV {{ cameraFov() }}°; throttled map updates to protect CPU.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button class="ghost" (click)="goBack()">← Back to Results</button>
+      <button class="primary" (click)="start()" [disabled]="running()">Start Pipeline</button>
+      <button class="secondary" (click)="stop()" [disabled]="!running()">Stop</button>
+    </div>
+  </header>
+
+  <section class="control-panel">
+    <div class="control-row">
+      <div class="status-chip" [class.active]="running()">
+        <span class="dot"></span>
+        {{ status() }}
+      </div>
+      <div class="status-chip" [class.active]="visionReady()">
+        Vision
+      </div>
+      <div class="status-chip" [class.active]="mapReady()">
+        Map
+      </div>
+      <div class="status-chip" [class.active]="orientationGranted()">
+        Heading {{ orientationGranted() ? 'locked' : 'not granted' }}
+      </div>
+      <div class="status-chip model-chip" [class.active]="visionReady()">
+        Model {{ modelOrigin() }}
+      </div>
+      <div class="status-chip model-chip" [class.active]="visionReady()">
+        WASM {{ wasmOrigin() }}
+      </div>
+    </div>
+
+    <div class="control-row wrap">
+      <button class="chip" (click)="requestHeading()">Grant heading (iOS/secure flow)</button>
+      <button class="chip" (click)="toggleHeadingRequirement()">
+        Heading {{ headingRequired() ? 'required' : 'optional' }}
+      </button>
+      <label class="chip slider">
+        <span>Camera FOV</span>
+        <input type="range" min="40" max="100" step="1" [value]="cameraFov()" (input)="setFov($event)" />
+        <span class="value">{{ cameraFov() }}°</span>
+      </label>
+      <div class="chip input-switch">
+        <button [class.active]="inputSource() === 'camera'" (click)="setInputSource('camera')">Live camera</button>
+        <button [class.active]="inputSource() === 'upload'" (click)="setInputSource('upload')">Upload video</button>
+      </div>
+      <label class="chip file-picker" [class.active]="inputSource() === 'upload'">
+        <span>Choose video</span>
+        <input type="file" accept="video/*" (change)="onFileSelected($event)" />
+        <span class="value">{{ uploadedVideoName() || 'none' }}</span>
+      </label>
+    </div>
+
+    <div class="control-row wrap meta">
+      <div>
+        <strong>Geo:</strong>
+        @if (deviceLocation(); as loc) {
+          {{ loc.lat | number:'1.5-5' }}, {{ loc.lng | number:'1.5-5' }} ±{{ loc.accuracy | number:'1.0-0' }}m
+        } @else { waiting… }
+      </div>
+      <div>
+        <strong>Heading:</strong> {{ orientationGranted() ? ( 'live' ) : 'not granted' }}
+      </div>
+      <div>
+        <strong>Map updates:</strong> throttled every {{ mapThrottleMs }} ms
+      </div>
+      <div>
+        <strong>Model path:</strong> {{ modelPath() || 'tbd' }}
+      </div>
+      <div>
+        <strong>WASM:</strong> {{ wasmPath() || 'tbd' }}
+      </div>
+    </div>
+  </section>
+
+  <section class="layout">
+    <div class="vision-panel">
+      <div class="panel-header">
+        <h2>Live Camera + Overlay</h2>
+        <span class="micro">FOV {{ cameraFov() }}° · GPU-enabled if available</span>
+      </div>
+      <div class="vision-frame">
+        <video #videoEl autoplay muted playsinline></video>
+        <canvas #overlay></canvas>
+      </div>
+      <p class="panel-note">
+        Map projection uses device GPS + heading + FOV to estimate target position. Replace <code>/models/defense-object-detector.tflite</code>
+        for hardened, on-device inference; WASM base can be pointed at offline assets under <code>/mediapipe</code>.
+      </p>
+    </div>
+
+    <div class="map-panel">
+      <div class="panel-header">
+        <h2>Geo Plot</h2>
+        <span class="micro">Markers update on throttle to avoid UI churn</span>
+      </div>
+      <div #mapContainer class="map-container"></div>
+      <p class="panel-note">
+        Swap map style to offline/air-gapped tiles for deployment. Each detection drops a marker with label, confidence, and
+        the computed lat/lng/radius.
+      </p>
+    </div>
+  </section>
+
+  <section class="detections">
+    <div class="panel-header">
+      <h2>Detections</h2>
+      <span class="micro">{{ detections().length }} active</span>
+    </div>
+    <div class="cards">
+      @if (detections().length === 0) {
+        <div class="empty">No objects detected yet.</div>
+      } @else {
+        @for (det of detections(); track det.id) {
+          <article class="card">
+            <div class="card-top">
+              <div>
+                <p class="label">{{ det.label }}</p>
+                <p class="score">{{ det.score * 100 | number:'1.0-1' }}%</p>
+              </div>
+              <p class="timestamp">{{ det.timestamp | date:'mediumTime' }}</p>
+            </div>
+            <p class="geo">Lat {{ det.lat | number:'1.5-5' }} · Lng {{ det.lng | number:'1.5-5' }}</p>
+            <p class="geo">Radius {{ det.radius | number:'1.0-0' }} m · bbox {{ det.bbox.x | number:'1.2-2' }}, {{ det.bbox.y | number:'1.2-2' }}</p>
+          </article>
+        }
+      }
+    </div>
+  </section>
+
+  <section class="telemetry">
+    <div class="panel-header">
+      <h2>Live Metadata / JSON</h2>
+      <span class="micro">Rolling log of events, detection samples, and config</span>
+    </div>
+    <div class="telemetry-body">
+      <div class="telemetry-entry sticky">
+        <strong>Source:</strong> {{ inputSource() }} · <strong>Status:</strong> {{ status() }}
+      </div>
+      <pre class="telemetry-pre">{{ telemetry() | json }}</pre>
+    </div>
+  </section>
+</div>
