@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Object Detection • MediaPipe Tasks</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+      background: #000000;
+      color: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+    .app {
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 18px;
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35), 0 0 20px rgba(0, 191, 255, 0.3);
+      width: 100%;
+      max-width: 1100px;
+      overflow: hidden;
+    }
+    .header {
+      padding: 20px 24px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .title { font-size: 20px; font-weight: 700; margin: 0; color: #ffffff; }
+    .subtitle { margin: 6px 0 0; color: #a0a0a0; font-size: 14px; }
+    .controls {
+      display: flex;
+      gap: 12px;
+      padding: 14px 24px 20px;
+      flex-wrap: wrap;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .controls input[type="file"] { color: #a0a0a0; }
+    .button {
+      padding: 10px 16px;
+      background: linear-gradient(135deg, #9FE2BF, #00BFFF);
+      color: #000000;
+      border: none;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 0 10px rgba(0, 191, 255, 0.5);
+    }
+    .button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .button:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 0 15px rgba(0, 191, 255, 0.7); }
+    .status {
+      margin-left: auto;
+      color: #d0d0d0;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 220px;
+    }
+    .pill { width: 10px; height: 10px; border-radius: 999px; background: #9FE2BF; box-shadow: 0 0 0 4px rgba(159, 226, 191, 0.2); }
+    .status.error .pill { background: #f43f5e; box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.2); }
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 0;
+      min-height: 520px;
+    }
+    .preview {
+      position: relative;
+      background: rgba(0, 0, 0, 0.3);
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    video, canvas { width: 100%; display: block; }
+    video { max-height: 70vh; object-fit: contain; background: #000000; }
+    canvas { position: absolute; inset: 0; pointer-events: none; }
+    .log {
+      padding: 16px;
+      overflow-y: auto;
+      max-height: 70vh;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(10px);
+    }
+    .log h3 { margin: 0 0 10px; font-size: 14px; color: #d0d0d0; }
+    .log-item {
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #e0e0e0;
+      margin-bottom: 10px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .badge { padding: 4px 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.8); color: #00BFFF; font-weight: 700; }
+    .footer { padding: 14px 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); color: #a0a0a0; font-size: 13px; }
+    .slider-container { display: flex; align-items: center; gap: 8px; color: #a0a0a0; font-size: 14px; }
+    input[type="range"] { accent-color: #00BFFF; }
+    @media (max-width: 960px) { .main { grid-template-columns: 1fr; } .preview { border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.1); } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <p class="title">Object Detection • MediaPipe Tasks</p>
+      <p class="subtitle">Upload a video or use live camera, then run on-device detection with the EfficientDet Lite model.</p>
+    </div>
+
+    <div class="controls">
+      <input type="file" id="videoInput" accept="video/*" />
+      <button class="button" id="cameraBtn">Use Live Camera</button>
+      <button class="button" id="startBtn" disabled>Start Detection</button>
+      <button class="button" id="stopBtn" disabled>Stop</button>
+      <div class="slider-container">
+        <label for="thresholdSlider">Confidence Threshold: <span id="thresholdValue">0.35</span></label>
+        <input type="range" id="thresholdSlider" min="0.1" max="0.9" step="0.05" value="0.35" />
+      </div>
+      <div class="status" id="status"><span class="pill"></span><span>Model loading...</span></div>
+    </div>
+
+    <div class="main">
+      <div class="preview">
+        <video id="video" muted playsinline></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="log" id="log">
+        <h3>Detections</h3>
+        <div id="logItems"></div>
+      </div>
+    </div>
+
+    <div class="footer">Runs fully in-browser using MediaPipe Tasks and the EfficientDet Lite model.</div>
+  </div>
+
+  <script type="module">
+    import { FilesetResolver, ObjectDetector } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
+
+    const videoInput = document.getElementById('videoInput');
+    const cameraBtn = document.getElementById('cameraBtn');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const thresholdSlider = document.getElementById('thresholdSlider');
+    const thresholdValue = document.getElementById('thresholdValue');
+    const statusEl = document.getElementById('status');
+    const videoEl = document.getElementById('video');
+    const canvasEl = document.getElementById('overlay');
+    const ctx = canvasEl.getContext('2d');
+    const logItems = document.getElementById('logItems');
+
+    const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float16/1/efficientdet_lite2.tflite';
+
+    let detector;
+    let animationId;
+    let running = false;
+    let currentStream = null;
+    let isLive = false;
+    let scoreThreshold = 0.35;
+
+    setStatus('Model loading...', false);
+    init();
+
+    async function init() {
+      try {
+        const vision = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+        );
+        detector = await ObjectDetector.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: MODEL_URL,
+            delegate: "GPU"
+          },
+          scoreThreshold: scoreThreshold,
+          maxResults: 10,
+          runningMode: "VIDEO"
+        });
+        setStatus('Model ready. Upload a video or use live camera.', false);
+        startBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        setStatus('Failed to load model. Check console.', true);
+      }
+    }
+
+    videoEl.addEventListener('loadedmetadata', resizeCanvas);
+
+    videoInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (running) stopDetection();
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+        isLive = false;
+        videoEl.srcObject = null;
+      }
+
+      const url = URL.createObjectURL(file);
+      videoEl.src = url;
+      videoEl.load();
+    });
+
+    cameraBtn.addEventListener('click', async () => {
+      if (running) stopDetection();
+
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+        isLive = false;
+        videoEl.srcObject = null;
+        videoEl.src = '';
+        ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+        logItems.innerHTML = '';
+        setStatus('Camera closed.', false);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        currentStream = stream;
+        isLive = true;
+        videoEl.src = '';
+        videoEl.srcObject = stream;
+        await videoEl.play();
+        setStatus('Live camera ready. Click Start Detection.', false);
+      } catch (err) {
+        console.error(err);
+        setStatus('Camera access failed: ' + err.message, true);
+      }
+    });
+
+    thresholdSlider.addEventListener('input', async (e) => {
+      scoreThreshold = parseFloat(e.target.value);
+      thresholdValue.textContent = scoreThreshold.toFixed(2);
+      if (detector) {
+        await detector.setOptions({ scoreThreshold });
+      }
+    });
+
+    startBtn.addEventListener('click', () => {
+      if (!detector) return;
+      running = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      videoEl.play().catch(() => {});
+      setStatus('Detecting...', false);
+      detectFrame();
+    });
+
+    stopBtn.addEventListener('click', stopDetection);
+
+    function stopDetection() {
+      running = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      cancelAnimationFrame(animationId);
+      videoEl.pause();
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+        isLive = false;
+        videoEl.srcObject = null;
+      }
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      logItems.innerHTML = '';
+      setStatus('Stopped.', false);
+    }
+
+    function resizeCanvas() {
+      canvasEl.width = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+    }
+
+    function detectFrame() {
+      if (!running) return;
+      animationId = requestAnimationFrame(detectFrame);
+      const timestampMs = performance.now();
+      detector.detectForVideo(videoEl, timestampMs, (result) => {
+        drawDetections(result.detections || []);
+      });
+    }
+
+    function drawDetections(detections) {
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      logItems.innerHTML = '';
+
+      detections.forEach((det) => {
+        const box = det.boundingBox;
+        const categories = det.categories || [];
+        const topCat = categories[0];
+
+        if (box) {
+          ctx.save();
+          ctx.strokeStyle = '#00BFFF';
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+          ctx.shadowColor = '#00BFFF';
+          ctx.shadowBlur = 10;
+          ctx.strokeRect(box.originX, box.originY, box.width, box.height);
+          ctx.restore();
+        }
+
+        if (topCat && box) {
+          const label = `${topCat.categoryName} ${(topCat.score * 100).toFixed(1)}%`;
+          ctx.save();
+          ctx.font = '14px "SFMono-Regular", Menlo, Consolas, monospace';
+          const padding = 6;
+          const metrics = ctx.measureText(label);
+          const textWidth = metrics.width;
+          const textHeight = 16;
+          const x = box.originX;
+          const y = Math.max(box.originY - textHeight - 4, 0);
+
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(x - padding / 2, y, textWidth + padding, textHeight + padding / 2);
+
+          ctx.fillStyle = '#9FE2BF';
+          ctx.textBaseline = 'top';
+          ctx.fillText(label, x, y + 4);
+          ctx.restore();
+
+          const item = document.createElement('div');
+          item.className = 'log-item';
+          item.innerHTML = `<span>${topCat.categoryName}</span><span class="badge">${(topCat.score * 100).toFixed(1)}%</span>`;
+          logItems.appendChild(item);
+        }
+      });
+    }
+
+    function setStatus(text, isError) {
+      statusEl.classList.toggle('error', !!isError);
+      statusEl.innerHTML = `<span class="pill"></span><span>${text}</span>`;
+    }
+  </script>
+</body>
+</html>
